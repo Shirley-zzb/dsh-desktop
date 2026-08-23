@@ -27,6 +27,25 @@ export function parseLoopbackUrl(output: string): string | null {
   return null
 }
 
+const failureDetailLimit = 600
+
+/**
+ * Extracts the most informative line of the child's captured output so launch
+ * failures show the official CLI's own error (for example an incompatible
+ * `~/.dsh` document) instead of only an exit code. Node uncaught exceptions
+ * put the summary on the first `Error:` line; other output falls back to the
+ * first non-empty line.
+ */
+export function summarizeDshFailure(output: string): string {
+  const lines = output
+    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+  const headline = lines.find((line) => line.startsWith('Error:')) ?? lines[0] ?? ''
+  return headline.slice(0, failureDetailLimit)
+}
+
 export function dshRuntimeEnvironment(environment: NodeJS.ProcessEnv, entries: string[], platform = process.platform): NodeJS.ProcessEnv {
   return {
     ...prependRuntimePath(environment, entries, platform),
@@ -86,7 +105,8 @@ export class DshSupervisor extends EventEmitter {
         this.child = null
         this.url = null
         this.setStatus('failed')
-        reject(new Error(message))
+        const detail = summarizeDshFailure(buffer)
+        reject(new Error(detail ? `${message}：${detail}` : message))
       }
       const consume = (chunk: Buffer | string): void => {
         buffer = `${buffer}${chunk.toString()}`.slice(-8_192)
