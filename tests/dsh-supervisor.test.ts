@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
-import { DshSupervisor, dshChildEnvironment, dshRuntimeEnvironment, dshWebArguments, parseLoopbackUrl, prependRuntimePath } from '../src/main/dsh-supervisor'
+import { DshSupervisor, dshChildEnvironment, dshRuntimeEnvironment, dshWebArguments, parseLoopbackUrl, prependRuntimePath, summarizeDshFailure } from '../src/main/dsh-supervisor'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 let supervisor: DshSupervisor | null = null
@@ -22,6 +22,25 @@ describe('parseLoopbackUrl', () => {
     expect(parseLoopbackUrl('http://localhost:3000')).toBeNull()
     expect(parseLoopbackUrl('https://127.0.0.1:3000')).toBeNull()
     expect(parseLoopbackUrl('http://example.com:3000')).toBeNull()
+  })
+})
+
+describe('summarizeDshFailure', () => {
+  it('优先提取首个 Error: 行并清理 ANSI 控制序列', () => {
+    const output = [
+      'file:///runtime/dsh-app-boot/lib/index.js:1186',
+      '                throw new Error(`boot failed`, { cause });',
+      '',
+      '\u001B[31mError:\u001B[0m dsh: plugin tree failed to load: the value for "version" in .credentials.yaml must be a string',
+      '    at parseCredentialsDocument (file:///runtime/index.js:132:40)'
+    ].join('\n')
+    expect(summarizeDshFailure(output)).toBe('Error: dsh: plugin tree failed to load: the value for "version" in .credentials.yaml must be a string')
+  })
+
+  it('没有 Error: 行时回退到首个非空行并限制长度', () => {
+    expect(summarizeDshFailure('\n  \nplain failure detail\nmore lines')).toBe('plain failure detail')
+    expect(summarizeDshFailure('x'.repeat(1_000)).length).toBe(600)
+    expect(summarizeDshFailure('')).toBe('')
   })
 })
 
@@ -63,6 +82,13 @@ describe('DshSupervisor', () => {
     expect(supervisor.status).toBe('running')
     await supervisor.stop()
     expect(supervisor.status).toBe('idle')
+  })
+
+  it('启动失败时把官方 DSH 的错误输出附在退出码后面', async () => {
+    supervisor = new DshSupervisor(process.execPath)
+    const launch = supervisor.start({ version: '1.0.0', root, entry: path.join(root, 'tests/fixtures/fake-dsh-fail.mjs'), source: 'installed' }, 5_000)
+    await expect(launch).rejects.toThrow('官方 DSH 启动失败（退出码 1）：Error: dsh: plugin tree failed to load: the value for "version" in C:\\Users\\example\\.dsh\\.credentials.yaml must be a string')
+    expect(supervisor.status).toBe('failed')
   })
 
   it('让 DSH 内部的插件管理器能按名称调用当前版本 CLI', async () => {

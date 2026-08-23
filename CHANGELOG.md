@@ -6,6 +6,10 @@ This file records notable changes to DSH Desktop. Versions follow [Semantic Vers
 
 ## Unreleased
 
+### Fixed
+
+- Surfaced the official DSH CLI's own error output when startup fails, so Version Manager shows the real cause (for example an incompatible `~/.dsh` credentials document written by a different DSH version) instead of only the exit code.
+
 ## [0.2.4] - 2026-08-22
 
 ### Fixed
