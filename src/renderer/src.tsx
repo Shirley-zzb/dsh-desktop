@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import semver from 'semver'
 import type { AppLocale, AppSnapshot, AppUpdateSnapshot, InstallProgress, LocalePreference } from '../shared/contracts'
 import deepSeekWhale from './deepseek-whale.svg'
+import { dshRuntimeFailureDetail, isDshRuntimeFailure } from './runtime-error'
 import './style.css'
 
 const initialLocale: AppLocale = navigator.language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US'
@@ -27,6 +28,8 @@ function App(): React.JSX.Element {
   const [appUpdate, setAppUpdate] = useState(emptyAppUpdate)
   const [busyAction, setBusyAction] = useState<string | null>('initializing')
   const [message, setMessage] = useState(copy(initialLocale).readingState)
+  const [errorDetailsExpanded, setErrorDetailsExpanded] = useState(false)
+  const [errorCopyState, setErrorCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const language = copy(snapshot.locale)
 
   useEffect(() => {
@@ -37,6 +40,11 @@ function App(): React.JSX.Element {
     const removeAppUpdate = window.dshDesktop.onAppUpdateChanged(setAppUpdate)
     return () => { removeState(); removeProgress(); removeAppUpdate() }
   }, [])
+
+  useEffect(() => {
+    setErrorDetailsExpanded(false)
+    setErrorCopyState('idle')
+  }, [snapshot.error])
 
   const rows = useMemo<VersionRow[]>(() => {
     const items = new Map<string, VersionRow>()
@@ -82,6 +90,19 @@ function App(): React.JSX.Element {
       : language.quickInstalling(latestVersion))
     : language.quickUpdateBusy
   const quickUpdateTooltip = latestVersion ? language.quickUpdateTooltip(latestVersion) : language.quickUpdateBusy
+  const runtimeFailure = isDshRuntimeFailure(snapshot.runtimeStatus, snapshot.error) ? snapshot.error : null
+  const runtimeFailureDetail = runtimeFailure ? dshRuntimeFailureDetail(runtimeFailure) : ''
+  const localizedRuntimeFailure = runtimeFailure ? localizeMessage(snapshot.locale, runtimeFailure) : ''
+
+  const copyRuntimeError = async (): Promise<void> => {
+    if (!runtimeFailure) return
+    try {
+      await window.dshDesktop.copyText(runtimeFailure)
+      setErrorCopyState('copied')
+    } catch {
+      setErrorCopyState('failed')
+    }
+  }
 
   const performAppUpdate = async (): Promise<void> => {
     if (appUpdate.status === 'downloaded') {
@@ -164,36 +185,68 @@ function App(): React.JSX.Element {
     </header>
 
     <section className="current-card" aria-label={language.currentDshVersion}>
-      <div className="current-orbit" aria-hidden="true"><img src={deepSeekWhale} alt="" /></div>
-      <div className="current-copy">
-        <span className="overline">{language.currentlyUsing}</span>
-        <div className="current-title">
-          <h2>{snapshot.selectedVersion ? `DSH ${snapshot.selectedVersion}` : language.dshNotInstalled}</h2>
-          {snapshot.selectedVersion && <span className="tag tag-current">{language.current}</span>}
-          {currentInstalled?.source === 'bundled' && <span className="tag">{language.bundled}</span>}
-          {updateAvailable && <span className="tag tag-update">{language.updateAvailable}</span>}
-          {canQuickUpdate && (
-            <button
-              type="button"
-              className="harness-update-action"
-              aria-label={language.quickUpdateAction(latestVersion ?? '')}
-              title={quickUpdateTooltip}
-              onClick={() => void quickUpdateHarness()}
-              disabled={busyAction !== null}
-            >
-              {language.quickUpdateAction(latestVersion ?? '')}
-            </button>
-          )}
+      <div className="current-summary">
+        <div className="current-orbit" aria-hidden="true"><img src={deepSeekWhale} alt="" /></div>
+        <div className="current-copy">
+          <span className="overline">{language.currentlyUsing}</span>
+          <div className="current-title">
+            <h2>{snapshot.selectedVersion ? `DSH ${snapshot.selectedVersion}` : language.dshNotInstalled}</h2>
+            {snapshot.selectedVersion && <span className="tag tag-current">{language.current}</span>}
+            {currentInstalled?.source === 'bundled' && <span className="tag">{language.bundled}</span>}
+            {updateAvailable && <span className="tag tag-update">{language.updateAvailable}</span>}
+            {canQuickUpdate && (
+              <button
+                type="button"
+                className="harness-update-action"
+                aria-label={language.quickUpdateAction(latestVersion ?? '')}
+                title={quickUpdateTooltip}
+                onClick={() => void quickUpdateHarness()}
+                disabled={busyAction !== null}
+              >
+                {language.quickUpdateAction(latestVersion ?? '')}
+              </button>
+            )}
+          </div>
+          <p>{language.officialFeaturesUnchanged}</p>
         </div>
-        <p>{language.officialFeaturesUnchanged}</p>
+        <div className="current-actions">
+          <span className={`runtime-pill runtime-${snapshot.runtimeStatus}`}><i />{statusText(snapshot.runtimeStatus, snapshot.locale)}</span>
+          {running && <button className="button secondary" disabled={busyAction !== null} onClick={() => void perform('stop', language.stoppingDsh, window.dshDesktop.stop)}>{language.stop}</button>}
+          <button className="button primary" disabled={busyAction !== null || !snapshot.selectedVersion} onClick={() => void perform('launch', running ? language.openingDsh : language.startingDsh, window.dshDesktop.launch)}>
+            <OpenIcon />{running ? language.openDsh : language.startDsh}
+          </button>
+        </div>
       </div>
-      <div className="current-actions">
-        <span className={`runtime-pill runtime-${snapshot.runtimeStatus}`}><i />{statusText(snapshot.runtimeStatus, snapshot.locale)}</span>
-        {running && <button className="button secondary" disabled={busyAction !== null} onClick={() => void perform('stop', language.stoppingDsh, window.dshDesktop.stop)}>{language.stop}</button>}
-        <button className="button primary" disabled={busyAction !== null || !snapshot.selectedVersion} onClick={() => void perform('launch', running ? language.openingDsh : language.startingDsh, window.dshDesktop.launch)}>
-          <OpenIcon />{running ? language.openDsh : language.startDsh}
-        </button>
-      </div>
+      {runtimeFailure && <section className="runtime-error-panel" role="alert" aria-live="assertive">
+        <div className="runtime-error-icon" aria-hidden="true">!</div>
+        <div className="runtime-error-content">
+          <div className="runtime-error-heading">
+            <div>
+              <strong>{language.dshStartupFailed}</strong>
+              <p>{language.dshStartupFailedSummary}</p>
+            </div>
+            <div className="runtime-error-actions">
+              <button type="button" className="runtime-error-copy" onClick={() => void copyRuntimeError()}>
+                {errorCopyState === 'copied' ? language.errorCopied : errorCopyState === 'failed' ? language.errorCopyFailed : language.copyError}
+              </button>
+              <button
+                type="button"
+                className="runtime-error-toggle"
+                aria-expanded={errorDetailsExpanded}
+                aria-controls="runtime-error-details"
+                onClick={() => setErrorDetailsExpanded((current) => !current)}
+              >
+                {errorDetailsExpanded ? language.hideDetails : language.viewDetails}
+              </button>
+            </div>
+          </div>
+          {!errorDetailsExpanded && <p className="runtime-error-preview">{runtimeFailureDetail || localizedRuntimeFailure}</p>}
+          {errorDetailsExpanded && <div id="runtime-error-details" className="runtime-error-details">
+            <pre>{localizedRuntimeFailure}</pre>
+            <p>{language.officialErrorBoundary}</p>
+          </div>}
+        </div>
+      </section>}
     </section>
 
     <section className="library">
@@ -245,7 +298,7 @@ function App(): React.JSX.Element {
     </section>
 
     <footer className="footer">
-      <span className={snapshot.error ? 'error-message' : ''}>{progress?.phase === 'downloading' && busyAction?.startsWith('install') ? '● ' : ''}{localizeMessage(snapshot.locale, snapshot.error ?? message)}</span>
+      <span className={snapshot.error && !runtimeFailure ? 'error-message' : ''}>{runtimeFailure ? '' : <>{progress?.phase === 'downloading' && busyAction?.startsWith('install') ? '● ' : ''}{localizeMessage(snapshot.locale, snapshot.error ?? message)}</>}</span>
       <span>Node {snapshot.nodeVersion ?? language.unknown}</span>
     </footer>
   </main>
@@ -341,6 +394,8 @@ function copy(locale: AppLocale) {
     switchingTo: (version: string) => `Switching to ${version}…`, installingVersion: (version: string) => `Installing ${version}…`, uninstallingVersion: (version: string) => `Uninstalling ${version}…`,
     noMatchingVersions: 'No matching versions', refreshEmpty: 'Refresh to load versions from the official npm registry.', adjustFilters: 'Try adjusting the filters or search.', unknown: 'Unknown', unknownPublishDate: 'Publish date unknown',
     notRunning: 'Not running', starting: 'Starting', dshRunning: 'DSH running', stopping: 'Stopping', runtimeError: 'Runtime error',
+    dshStartupFailed: 'Official DSH failed to start', dshStartupFailedSummary: 'This version returned an error. Expand details to see the cause.', copyError: 'Copy error', errorCopied: 'Copied', errorCopyFailed: 'Copy failed', viewDetails: 'View details', hideDetails: 'Hide details',
+    officialErrorBoundary: 'These startup details came from official DSH. DSH Desktop did not modify your configuration or credentials.',
     newDesktopVersion: (version: string) => `Version ${version} is available. You decide whether to upgrade.`, newDesktopVersionManual: (version: string) => `Version ${version} is available. Open GitHub Releases to download it.`, newVersion: 'new version', downloadingDesktop: (version: string, percent: number) => `Downloading ${version} · ${percent}%`,
     desktopDownloaded: (version: string) => `${version} downloaded. Restart to install.`, checkingGitHub: 'Checking GitHub Releases for updates…', upToDate: 'You are up to date', cannotCheckUpdates: 'Unable to check for updates',
     independentUpdates: 'DSH Desktop updates come from GitHub Releases and are separate from official DSH versions', downloadUpdate: 'Download update', openDownloadPage: 'Open GitHub download page', restartInstall: 'Restart and install', checking: 'Checking…', checkAgain: 'Check again', releaseOnly: 'Available in release builds only', checkUpdates: 'Check for updates'
@@ -358,6 +413,8 @@ function copy(locale: AppLocale) {
     switchingTo: (version: string) => `正在切换到 ${version}…`, installingVersion: (version: string) => `正在安装 ${version}…`, uninstallingVersion: (version: string) => `正在卸载 ${version}…`,
     noMatchingVersions: '没有符合条件的版本', refreshEmpty: '点击右上角刷新，从 npm 官方源获取版本。', adjustFilters: '试试调整筛选或搜索内容。', unknown: '未知', unknownPublishDate: '发布时间未知',
     notRunning: '未运行', starting: '启动中', dshRunning: 'DSH 运行中', stopping: '停止中', runtimeError: '运行异常',
+    dshStartupFailed: '官方 DSH 启动失败', dshStartupFailedSummary: '当前版本返回了错误，展开详情可查看具体原因。', copyError: '复制错误', errorCopied: '已复制', errorCopyFailed: '复制失败', viewDetails: '查看详情', hideDetails: '收起详情',
+    officialErrorBoundary: '以上为官方 DSH 的启动失败详情，DSH Desktop 未修改你的配置或凭据。',
     newDesktopVersion: (version: string) => `发现新版 ${version}，是否升级由你决定`, newDesktopVersionManual: (version: string) => `发现新版 ${version}，请前往 GitHub Releases 下载`, newVersion: '新版', downloadingDesktop: (version: string, percent: number) => `正在下载 ${version} · ${percent}%`,
     desktopDownloaded: (version: string) => `${version} 已下载，重启后安装`, checkingGitHub: '正在从 GitHub Releases 检查更新…', upToDate: '当前已是最新版', cannotCheckUpdates: '暂时无法检查更新',
     independentUpdates: 'DSH Desktop 更新来自 GitHub Releases，与官方 DSH 版本独立', downloadUpdate: '下载更新', openDownloadPage: '打开 GitHub 下载页', restartInstall: '重启并安装', checking: '检查中…', checkAgain: '再次检查', releaseOnly: '仅正式版可用', checkUpdates: '检查更新'

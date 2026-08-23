@@ -12,6 +12,7 @@ const api: DesktopApi = {
   stop: () => ipcRenderer.invoke(channels.stop),
   dismissUpdate: (version) => ipcRenderer.invoke(channels.dismissUpdate, version),
   openExternal: (url) => ipcRenderer.invoke(channels.openExternal, url),
+  copyText: (text) => ipcRenderer.invoke(channels.copyText, text),
   setLocale: (preference: LocalePreference) => ipcRenderer.invoke(channels.setLocale, preference),
   getAppUpdate: () => ipcRenderer.invoke(channels.appUpdateSnapshot),
   checkAppUpdate: () => ipcRenderer.invoke(channels.appUpdateCheck),

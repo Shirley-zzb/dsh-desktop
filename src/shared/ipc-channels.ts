@@ -8,6 +8,7 @@ export const channels = {
   stop: 'dsh:stop',
   dismissUpdate: 'dsh:dismiss-update',
   openExternal: 'dsh:open-external',
+  copyText: 'desktop:copy-text',
   setLocale: 'desktop:set-locale',
   stateChanged: 'dsh:state-changed',
   installProgress: 'dsh:install-progress',

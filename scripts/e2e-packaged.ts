@@ -76,12 +76,19 @@ const packagedDshVersion = await new Promise<string>((resolve, reject) => {
 if (packagedDshVersion !== '0.1.0-rc.6') throw new Error(`打包 dsh 版本不正确：${packagedDshVersion}`)
 const isolatedHome = await mkdtemp(path.join(os.tmpdir(), 'dsh-desktop-e2e-'))
 const removableVersion = '0.0.1'
+const failingVersion = '0.0.2'
 const removablePackageRoot = path.join(isolatedHome, 'electron', 'dsh-versions', removableVersion, 'node_modules', '@deepseek-ai', 'dsh')
+const failingPackageRoot = path.join(isolatedHome, 'electron', 'dsh-versions', failingVersion, 'node_modules', '@deepseek-ai', 'dsh')
 await mkdir(removablePackageRoot, { recursive: true })
+await mkdir(failingPackageRoot, { recursive: true })
 await writeFile(path.join(removablePackageRoot, 'package.json'), JSON.stringify({
   name: '@deepseek-ai/dsh', version: removableVersion, bin: { dsh: 'cli.js' }
 }))
 await writeFile(path.join(removablePackageRoot, 'cli.js'), 'throw new Error("E2E removable version must not launch")\n')
+await writeFile(path.join(failingPackageRoot, 'package.json'), JSON.stringify({
+  name: '@deepseek-ai/dsh', version: failingVersion, bin: { dsh: 'cli.js' }
+}))
+await writeFile(path.join(failingPackageRoot, 'cli.js'), 'console.error("Error: packaged DSH startup fixture failed")\nprocess.exit(1)\n')
 const launchEnvironment: NodeJS.ProcessEnv = { ...process.env, DSH_HOME: path.join(isolatedHome, 'official-dsh') }
 if (process.platform === 'darwin') {
   for (const key of Object.keys(launchEnvironment)) {
@@ -166,7 +173,20 @@ try {
   }
   await dshWindow.close()
   await manager.getByText(/未运行|Not running/, { exact: true }).waitFor({ timeout: 10_000 })
-  console.log('Packaged E2E passed: selected dsh CLI, bundled pnpm, direct official DSH launch, version removal, manager UI, and stop-on-close')
+  const failingRow = manager.locator('article.version-row').filter({ has: manager.getByText(failingVersion, { exact: true }) })
+  await failingRow.getByRole('button', { name: /切换|Switch/ }).click()
+  const runtimeAlert = manager.getByRole('alert')
+  await runtimeAlert.getByText(/官方 DSH 启动失败|Official DSH failed to start/, { exact: true }).waitFor()
+  await runtimeAlert.getByText('Error: packaged DSH startup fixture failed', { exact: true }).waitFor()
+  if (await manager.locator('.footer .error-message').count()) throw new Error('启动错误仍然显示在底部状态栏')
+  await runtimeAlert.getByRole('button', { name: /查看详情|View details/ }).click()
+  await runtimeAlert.locator('pre').getByText(/packaged DSH startup fixture failed/).waitFor()
+  await runtimeAlert.getByRole('button', { name: /复制错误|Copy error/ }).click()
+  await runtimeAlert.getByRole('button', { name: /已复制|Copied/ }).waitFor()
+  const copiedError = await electronApp.evaluate(({ clipboard }) => clipboard.readText())
+  if (!copiedError.includes('packaged DSH startup fixture failed')) throw new Error(`复制的启动错误不正确：${copiedError}`)
+  if (process.env.DSH_DESKTOP_E2E_SCREENSHOT) await manager.screenshot({ path: process.env.DSH_DESKTOP_E2E_SCREENSHOT, fullPage: true })
+  console.log('Packaged E2E passed: selected dsh CLI, bundled pnpm, direct official DSH launch, version removal, manager UI, first-screen runtime error details, clipboard copy, and stop-on-close')
 } finally {
   await electronApp.close()
   await rm(isolatedHome, { recursive: true, force: true })
