@@ -1,8 +1,8 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, Notification, session, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, net, Notification, session, shell } from 'electron'
 import electronUpdater from 'electron-updater'
 import path from 'node:path'
 import semver from 'semver'
-import { channels, exactVersionSchema, localePreferenceSchema, type AppLocale, type AppSnapshot, type AppUpdateSnapshot, type InstallProgress, type LocalePreference } from '../shared/contracts'
+import { channels, clipboardTextSchema, exactVersionSchema, localePreferenceSchema, type AppLocale, type AppSnapshot, type AppUpdateSnapshot, type InstallProgress, type LocalePreference } from '../shared/contracts'
 import { DesktopUpdater } from './app-updater'
 import { applyNetworkProxy, configureNetworkProxy } from './network-proxy'
 import { AppController } from './controller'
@@ -458,6 +458,10 @@ function registerIpc(instance: AppController): void {
     assertManager(event)
     if (typeof raw !== 'string' || !isSafeExternalUrl(raw)) throw new Error('只允许打开 HTTPS 链接')
     await shell.openExternal(raw)
+  })
+  ipcMain.handle(channels.copyText, (event, raw: unknown) => {
+    assertManager(event)
+    clipboard.writeText(clipboardTextSchema.parse(raw))
   })
   ipcMain.handle(channels.setLocale, async (event, raw: unknown) => {
     assertManager(event)

@@ -7,6 +7,7 @@ export const bundledDshVersion = '0.1.0-rc.6' as const
 
 export const exactVersionSchema = z.string().min(1).max(80).regex(/^[0-9A-Za-z][0-9A-Za-z.+-]*$/).refine((value) => semver.valid(value) !== null)
 export const localePreferenceSchema = z.enum(['system', 'zh-CN', 'en-US'])
+export const clipboardTextSchema = z.string().min(1).max(4_096)
 
 export type AppLocale = 'zh-CN' | 'en-US'
 export type LocalePreference = z.infer<typeof localePreferenceSchema>
@@ -70,6 +71,7 @@ export interface DesktopApi {
   stop(): Promise<AppSnapshot>
   dismissUpdate(version: string): Promise<AppSnapshot>
   openExternal(url: string): Promise<void>
+  copyText(text: string): Promise<void>
   setLocale(preference: LocalePreference): Promise<AppSnapshot>
   getAppUpdate(): Promise<AppUpdateSnapshot>
   checkAppUpdate(): Promise<AppUpdateSnapshot>
